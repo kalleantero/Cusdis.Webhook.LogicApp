@@ -1,0 +1,273 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Create_Approval_Link": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "approveLink",
+                            "type": "string",
+                            "value": "<a href=\"@{triggerBody()?['data']?['approve_link']}\">Approve</a>"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Encode_Quickchart_content": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Encode_Quickchart_content": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "chartEmailBody",
+                            "type": "string",
+                            "value": "<img src=\"https://quickchart.io/chart?width=300&height=200&c=@{uriComponent(variables('chart'))}\"></img>"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_Quickchart_data": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Initialize_Quickchart_data": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "chart",
+                            "type": "string",
+                            "value": "{\n    \"type\": \"horizontalBar\",\n    \"data\": {\n        \"datasets\": [\n            {\n                \"label\": \"Category 1\",\n                \"data\": [\n                    @{body('Parse_Content_Moderation_Result')?['Category1']?['Score']}\n                ]\n            },\n            {\n                \"label\": \"Category 2\",\n                \"data\": [\n                    @{body('Parse_Content_Moderation_Result')?['Category2']?['Score']}\n                ]\n            },\n            {\n                \"label\": \"Category 3\",\n                \"data\": [\n                    @{body('Parse_Content_Moderation_Result')?['Category3']?['Score']}\n                ]\n            }\n        ]\n    }\n}"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Persists_Data_to_Table_Storage": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Initialize_Table_Storage_Entity": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "tableStorageEntity",
+                            "type": "object",
+                            "value": {
+                                "Category1Score": "@body('Parse_Content_Moderation_Result')?['Category1']?['Score']",
+                                "Category2Score": "@body('Parse_Content_Moderation_Result')?['Category2']?['Score']",
+                                "Category3Score": "@body('Parse_Content_Moderation_Result')?['Category3']?['Score']",
+                                "Content": "@{triggerBody()?['data']?['content']}",
+                                "Email": "@{triggerBody()?['data']?['by_email']}",
+                                "Nickname": "@{triggerBody()?['data']?['by_nickname']}",
+                                "PageTitle": "@{triggerBody()?['data']?['page_title']}",
+                                "PartitionKey": "@{triggerBody()?['data']?['page_id']}",
+                                "ReviewRecommended": "@body('Parse_Content_Moderation_Result')?['ReviewRecommended']",
+                                "RowKey": "@{ticks(utcNow())}"
+                            }
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Parse_Content_Moderation_Result": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Parse_Content_Moderation_Result": {
+                "inputs": {
+                    "content": "@body('Request_moderation_from_Azure_Content_Moderator')?['Classification']",
+                    "schema": {
+                        "properties": {
+                            "Category1": {
+                                "properties": {
+                                    "Score": {
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "Category2": {
+                                "properties": {
+                                    "Score": {
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "Category3": {
+                                "properties": {
+                                    "Score": {
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "ReviewRecommended": {
+                                "type": "boolean"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "runAfter": {
+                    "Request_moderation_from_Azure_Content_Moderator": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson"
+            },
+            "Persists_Data_to_Table_Storage": {
+                "inputs": {
+                    "body": "@variables('tableStorageEntity')",
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuretables_1']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/v2/storageAccounts/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/tables/@{encodeURIComponent('comments')}/entities"
+                },
+                "runAfter": {
+                    "Initialize_Table_Storage_Entity": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "Request_moderation_from_Azure_Content_Moderator": {
+                "inputs": {
+                    "body": "@triggerBody()?['data']?['content']",
+                    "headers": {
+                        "Content-Type": "text/plain"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['cognitiveservicescontentmoderator']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/contentmoderator/moderate/v1.0/ProcessText/Screen/",
+                    "queries": {
+                        "classify": true
+                    }
+                },
+                "runAfter": {},
+                "type": "ApiConnection"
+            },
+            "Send_notification_email": {
+                "inputs": {
+                    "body": {
+                        "content": {
+                            "html": "<p><span style=\"font-size: 16px\">New blog post comment for </span><span style=\"font-size: 16px\">@{triggerBody()?['data']?['page_title']}</span><span style=\"font-size: 16px\"></span><br>\n<br>\nComment: @{triggerBody()?['data']?['content']}<br>\nCreated by: @{triggerBody()?['data']?['by_nickname']} @{triggerBody()?['data']?['by_email']}<br>\nReview recommended: @{body('Parse_Content_Moderation_Result')?['ReviewRecommended']}<br>\n<br>\n@{variables('chartEmailBody')}<br>\n<br>\n<strong>Category 1</strong>: Potential presence of language that might be considered sexually explicit or adult in certain situations.<br>\n<strong>Category 2</strong>: Potential presence of language that might be considered sexually suggestive or mature in certain situations.<br>\n<strong>Category 3</strong>: Potential presence of language that might be considered offensive in certain situations.<br>\n<br>\n@{variables('approveLink')}</p>",
+                            "subject": "Review blog comment"
+                        },
+                        "importance": "normal",
+                        "recipients": {
+                            "to": [
+                                {
+                                    "email": "[MODERATOR_EMAIL_ADDRESS]"
+                                }
+                            ]
+                        },
+                        "sender": "[SENDER_EMAIL_ADDRESS]"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['acsemail']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/emails:send",
+                    "queries": {
+                        "api-version": "2021-10-01-preview"
+                    }
+                },
+                "runAfter": {
+                    "Create_Approval_Link": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+            }
+        },
+        "triggers": {
+            "manual": {
+                "inputs": {
+                    "schema": {
+                        "properties": {
+                            "data": {
+                                "properties": {
+                                    "approve_link": {
+                                        "type": "string"
+                                    },
+                                    "by_email": {
+                                        "type": "string"
+                                    },
+                                    "by_nickname": {
+                                        "type": "string"
+                                    },
+                                    "content": {
+                                        "type": "string"
+                                    },
+                                    "page_id": {
+                                        "type": "string"
+                                    },
+                                    "page_title": {
+                                        "type": "string"
+                                    },
+                                    "project_title": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "kind": "Http",
+                "type": "Request"
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "value": {
+                "acsemail": {
+                    "connectionId": "",
+                    "connectionName": "",
+                    "id": ""
+                },
+                "azuretables_1": {
+                    "connectionId": "",
+                    "connectionName": "",
+                    "id": ""
+                },
+                "cognitiveservicescontentmoderator": {
+                    "connectionId": "",
+                    "connectionName": "",
+                    "id": ""
+                }
+            }
+        }
+    }
+}
