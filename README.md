@@ -6,7 +6,7 @@ This repository contains a sample about Webhook HTTP endpoint created with Logic
 
 You need to create API Connections to Azure Content Moderator, Azure Storage Account and to Azure Communication Service manually before using this template and then change connections to Logic App definition file.
 
-Change also this placeholder values in the definition:
+Change also these placeholder values in the definition:
 
 [MODERATOR_EMAIL_ADDRESS]
 
